@@ -96,11 +96,20 @@ class XDrawable {
     public function fillArc($gc, $x, $y, $width, $height, $angle1 = 0, $angle2 = 23040) {
         $this->display->fillArc($this, $gc, $x, $y, $width, $height, $angle1, $angle2);
     }
+
+    public function putImage($format, $gc, $width, $height, $x, $y, $leftpad, $depth, $data) {
+        $this->display->putImage($this, $format, $gc, $width, $height, $x, $y, $leftpad, $depth, $data);
+    }
 }
 
 class XWindow extends XDrawable {
     public function map() {
         $this->display->mapWindow($this);
+        return $this;
+    }
+
+    public function changeProperty($mode, $atom, $type, $format, $data) {
+        $this->display->changeProperty($this, $mode, $atom, $type, $format, $data);
         return $this;
     }
 }
@@ -760,6 +769,11 @@ class XClient {
         self::sendPacket($conn, $packet);
     }
 
+    public function sendChangeProperty($conn, $mode, $window, $atom, $type, $format, $data) {
+        $packet = pack("CCnNNNCx3N", self::X_ChangeProperty, $mode, 6 + (int)((strlen($data) + 3) / 4), $window, $atom, $type, $format, strlen($data) / ($format / 8)). self::pad($data);
+        self::sendPacket($conn, $packet);
+    }
+
     public function packGCAttributes($attrs) {
         $attr_portion = "";
         $attr_mask = 0;
@@ -895,6 +909,12 @@ class XClient {
         self::sendPacket($conn, $packet);
     }
 
+    public function sendPutImage($conn, $format, $drawable, $gc, $width, $height, $x, $y, $leftpad, $depth, $data) {
+        $data = self::pad($data);
+        $packet = pack("CCnNNnnnnCCx2", self::X_PutImage, $format, 6 + strlen($data) / 4, $drawable, $gc, $width, $height, $x, $y, $leftpad, $depth). $data;
+        self::sendPacket($conn, $packet);
+    }
+
     public function sendAllocColor($conn, $cmap, $red, $green, $blue) {
         $packet = pack("CxnNnnnx2", self::X_AllocColor, 4, $cmap, $red, $green, $blue);
         self::sendPacket($conn, $packet);
@@ -931,12 +951,29 @@ class XClient {
         return 32;
     }
 
+    public function sendInternAtom($conn, $name, $only_if_exists) {
+        $name_len = strlen($name);
+        $packet = pack("CCnnx2", self::X_InternAtom, $only_if_exists, 2 + (int)(($name_len + 3) / 4), $name_len). self::pad($name);
+        self::sendPacket($conn, $packet);
+    }
+
+    public function parseInternAtom($data) {
+        $retval = unpack('Ctype/Cdepth/nserial/x4/Natom', $data);
+        if ($retval['type'] != 1)
+            throw new XProtocolException();
+        return $retval['atom'];
+    }
+
     public function parseEvent($data) {
         $retval = unpack('Ctype/Cdetail/nserial', $data);
         switch ($retval['type']) {
         case self::Expose:
             $retval += unpack("x4/Nwindow/nx/ny/nwidth/nheight/ncount", $data);
             break;
+        case self::KeyPress:
+        case self::KeyRelease:
+        case self::ButtonPress:
+        case self::ButtonRelease:
         case self::MotionNotify:
             $retval += unpack("x4/Ntime/Nroot/Nevent/Nchild/nrootX/nrootY/neventX/neventY/nstate/CsameScreen/x1", $data);
             break;
@@ -1054,6 +1091,15 @@ class XDisplay {
         $this->xc->sendMapWindow($this->conn, $window->id);
     }
 
+    public function internAtom($name, $only_if_exists = false) {
+        $this->xc->sendInternAtom($this->conn, $name, $only_if_exists);
+        return $this->xc->parseInternAtom($this->waitForReply()); 
+    }
+
+    public function changeProperty(XWindow $window, $mode, $atom, $type, $format, $data) {
+        $this->xc->sendChangeProperty($this->conn, $mode, $window->id, $atom->id, $type->id, $format, $data);
+    }
+
     public function getGeometry(XDrawable $drawable) {
         $this->xc->sendGetGeometry($this->conn, $drawable->id);
         return $this->xc->parseGetGeometryResponse($this->waitForReply());
@@ -1085,6 +1131,10 @@ class XDisplay {
                     'x' => $x, 'y' => $y,
                     'width' => $width, 'height' => $height,
                     'angle1' => $angle1, 'angle2' => $angle2)));
+    }
+
+    public function putImage(XDrawable $drawable, $format, $gc, $width, $height, $x, $y, $leftpad, $depth, $data) {
+        $this->xc->sendPutImage($this->conn, $format, $drawable->id, $gc, $width, $height, $x, $y, $leftpad, $depth, $data);
     }
 
     public function fetchResponse() {
