@@ -601,12 +601,22 @@ class XClient {
         return $conn;
     }
 
+    public static function freadthru($fh, $len) {
+        $retval = "";
+        while ($len > 0) {
+            $buf = fread($fh, $len);
+            $retval .= $buf;
+            $len -= strlen($buf);
+        }
+        return $retval;
+    }
+
     public static function pad($str) {
         return str_pad($str, (strlen($str) + 3) & ~3, "\x00");
     }
 
     public static function readPadded($conn, $len) {
-        return substr(fread($conn, ($len + 3) & ~3), 0, $len);
+        return substr(self::freadthru($conn, ($len + 3) & ~3), 0, $len);
     }
 
     public function negotiate($conn, $auth) {
@@ -616,7 +626,7 @@ class XClient {
         $packet .= self::pad($auth->getName());
         $packet .= self::pad($auth->getData());
         fwrite($conn, $packet);
-        $buf = fread($conn, 8);
+        $buf = self::freadthru($conn, 8);
         switch (ord($buf{0})) {
         default:
             throw new XProtocolException();
@@ -625,18 +635,18 @@ class XClient {
             if ($data['major'] != $this->majorVersion
                     || $data['minor'] != $this->minorVersion)
                 throw XProtocolException();
-            $reason = substr(fread($conn, $data['lenx'] * 4), 0, $data['len']);
+            $reason = substr(self::freadthru($conn, $data['lenx'] * 4), 0, $data['len']);
             throw new XClientException($reason);
         case 2:
             $data = unpack("Ccode/x5/nlenx", $buf);
-            $reason = rtrim(fread($conn, $data['lenx'] * 4), "\0");
+            $reason = rtrim(self::freadthru($conn, $data['lenx'] * 4), "\0");
             throw new XClientException($reason);
         case 1:
             $data = unpack("Ccode/Clen/nmajor/nminor/nlenx", $buf);
             if ($data['major'] != $this->majorVersion
                     || $data['minor'] != $this->minorVersion)
                 throw XProtocolException();
-            $buf = fread($conn, $data['lenx'] * 4);
+            $buf = self::freadthru($conn, $data['lenx'] * 4);
             $data = unpack("NreleaseNumber/NresourceIdBase/NresourceIdMask/NmotionBufferSize/nlengthOfVendor/nmaxRequestLength/CnumberOfScreens/CnumberOfFormats/CimageByteOrder/CbitmapFormatBitOrder/CbitmapFormatScanlineUnit/CbitmapFormatScanlinePad/CminKeycode/CmaxKeycode/x4", $buf);
             $offset = 32;
             $data['vendor'] = substr($buf, $offset, $data['lengthOfVendor']);
@@ -1139,7 +1149,7 @@ class XDisplay {
 
     public function fetchResponse() {
         $packet_len = $this->xc->getResponseLength();
-        $buf = fread($this->conn, $packet_len);
+        $buf = XClient::freadthru($this->conn, $packet_len);
         if ($buf === false)
             return false;
         else if (strlen($buf) != $packet_len)
