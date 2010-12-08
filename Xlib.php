@@ -596,7 +596,7 @@ class XClient {
         }
         $conn = stream_socket_client($conn_str, $errno, $errstr);
         if ($conn === false) {
-            throw IOException($errstr, $errno);
+            throw new IOException($errstr, $errno);
         }
         return $conn;
     }
@@ -691,7 +691,7 @@ class XClient {
 
     public static function sendPacket($conn, $packet) {
         if (fwrite($conn, $packet) != strlen($packet))
-            throw IOException(sprintf("Failed to send %d bytes", strlen($packet)));
+            throw new IOException(sprintf("Failed to send %d bytes", strlen($packet)));
     }
 
     public function sendCreateWindow($conn, $depth, $window, $parent, $x, $y, $width, $height, $border_width, $class, $visual, $attrs) {
