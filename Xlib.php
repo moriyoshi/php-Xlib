@@ -583,14 +583,14 @@ class XClient {
     const X_GetModifierMapping = 119;
     const X_NoOperation = 127;
 
-    public function getLocalSocketPath($dpy) {
-        return sprintf("/tmp/.X11-unix/X%d", $dpy);
+    public function getLocalSocketPath($descr) {
+        return $descr['host'] == '' ? sprintf("/tmp/.X11-unix/X%d", $descr['screen']): sprintf("%s:%d", $descr['host'], $descr['screen']);
     }
 
     public function makeConnection($descr) {
         $conn_str = false;
         if ($descr['host'] == "" || $descr['host']{0} == '/') {
-            $conn_str = "unix://" . self::getLocalSocketPath($dpy);
+            $conn_str = "unix://" . self::getLocalSocketPath($descr);
         } else {
             $conn_str = sprintf("tcp://%s:%d", $descr['host'], self::TCP_PORT + $descr['display']);
         }
